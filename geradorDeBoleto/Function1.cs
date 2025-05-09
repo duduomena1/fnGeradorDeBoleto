@@ -20,48 +20,28 @@ namespace fnGeradorBoletos
         {
             try
             {
+
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-                _logger.LogInformation("Received request body: {RequestBody}", requestBody);
-                
-                if (string.IsNullOrWhiteSpace(requestBody))
-                {
-                    return new BadRequestObjectResult("Request body cannot be null or empty.");
-                }
+                dynamic data = JsonConvert.DeserializeObject(requestBody);
 
-                dynamic? deserializedData;
-                try
-                {
-                    deserializedData = JsonConvert.DeserializeObject(requestBody);
-                    if (deserializedData == null)
-                    {
-                        return new BadRequestObjectResult("Invalid JSON in request body.");
-                    }
-                }
-                catch (JsonReaderException ex)
-                {
-                    _logger.LogError(ex, "JSON parsing error in request body: {RequestBody}", requestBody);
-                    return new BadRequestObjectResult($"Invalid JSON format: {ex.Message}");
-                }
+                string valor = data?.valor;
+                string dataVencimento = data?.dataVencimento;
 
-                string? valor = deserializedData?.valor;
-                string? dataVencimento = deserializedData?.dataVencimento;
+                string barcodeData;
 
+                //Validação dos dados
                 if (string.IsNullOrEmpty(valor) || string.IsNullOrEmpty(dataVencimento))
                 {
                     return new BadRequestObjectResult("Os campos valor e dataVencimento são obrigatórios");
                 }
 
-                string barcodeData;
-
-                //Validate the format of the data
+                //Validar formato da Data de Vencimento YYYY-MM-DD
                 if (!DateTime.TryParseExact(dataVencimento, "yyyy-MM-dd", null, System.Globalization.DateTimeStyles.None, out DateTime dateObj))
                 {
                     return new BadRequestObjectResult("Data de Vencimento inválida");
                 }
 
                 string dateStr = dateObj.ToString("yyyyMMdd");
-
-                //Conv value to cents and format it to 8 digits
 
                 if (!decimal.TryParse(valor, out decimal valorDecimal))
                 {
@@ -70,13 +50,11 @@ namespace fnGeradorBoletos
                 int valorCentavos = (int)(valorDecimal * 10);
                 string valorStr = valorCentavos.ToString("D8");
 
-                string bankCode = "273";
-                string baseCode = string.Concat(bankCode, valorStr, dateStr);
-
-                // filling the barcode with zeros to make it 44 characters long
-
+                string bankCode = "059";
+                string baseCode = string.Concat(bankCode, dateStr, valorStr);
+               
                 barcodeData = baseCode.Length < 44 ? baseCode.PadRight(44, '0') : baseCode.Substring(0, 44);
-                _logger.LogInformation($"Generated barcode: {barcodeData}");
+                _logger.LogInformation($"Barcode gerado: {barcodeData}");
 
                 Barcode barcode = new Barcode();
                 var skImage = barcode.Encode(BarcodeStandard.Type.Code128, barcodeData);
@@ -99,10 +77,10 @@ namespace fnGeradorBoletos
 
                     return new OkObjectResult(resultObject);
                 }
+
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An error occurred while processing the request.");
                 return new StatusCodeResult(StatusCodes.Status500InternalServerError);
             }
 
@@ -120,7 +98,7 @@ namespace fnGeradorBoletos
 
             await sender.SendMessageAsync(message);
 
-            _logger.LogInformation($"Message sent to queue: {queueName}");
+            _logger.LogInformation($"Mensagem enviada para a fila {queueName}");
 
         }
     }

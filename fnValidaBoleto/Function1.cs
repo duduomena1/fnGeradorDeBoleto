@@ -3,44 +3,46 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using System.ComponentModel.DataAnnotations;
 
-namespace fnValidaBoleto;
-
-public class Function1
+namespace fnValidaBoleto
 {
-    private readonly ILogger<Function1> _logger;
-
-    public Function1(ILogger<Function1> logger)
+    public class Function1
     {
-        _logger = logger;
-    }
+        private readonly ILogger<Function1> _logger;
 
-    [Function("barcode-validate")]
-    public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
-    {
-        string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-        dynamic data = JsonConvert.DeserializeObject(requestBody);
-        string barcodeData = data?.barcode;
-
-        if (string.IsNullOrEmpty(barcodeData))
+        public Function1(ILogger<Function1> logger)
         {
-            return new BadRequestObjectResult("O campo barcode é obrigatório");
+            _logger = logger;
         }
 
-        if (barcodeData.Length != 44)
+        [Function("barcode-validate")]
+        public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
         {
-            var result = new { valido = false, mensagem = "O campo barcode deve ter 44 caracteres" };
-            return new BadRequestObjectResult(result);
-        }
+            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            dynamic data = JsonConvert.DeserializeObject(requestBody);
+            string barcodeData = data?.barcode;
 
-        string datePart = barcodeData.Substring(3, 8);
-        if (!DateTime.TryParseExact(datePart, "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out DateTime dateObj))
-        {
-            var result = new { valido = false, mensagem = "Data de Vencimento inválida" };
-            return new BadRequestObjectResult(result);
-        }
+            if (string.IsNullOrEmpty(barcodeData))
+            {
+                return new BadRequestObjectResult("O campo barcode é obrigatório");
+            }
 
-        var resultOk = new { valido = true, mensagem = "Boleto válido", vencimento = dateObj.ToString("dd-MM-yyyy") };
-        return new OkObjectResult(resultOk);
+            if (barcodeData.Length != 44)
+            {
+                var result = new { valido = false, mensagem = "O campo barcode deve ter 44 caracteres" };
+                return new BadRequestObjectResult(result);
+            }
+
+            string datePart = barcodeData.Substring(3, 8);
+            if (!DateTime.TryParseExact(datePart, "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out DateTime dateObj))
+            {
+                var result = new { valido = false, mensagem = "Data de Vencimento inválida" };
+                return new BadRequestObjectResult(result);
+            }
+
+            var resultOk = new { valido = true, mensagem = "Boleto válido", vencimento = dateObj.ToString("dd-MM-yyyy") };
+            return new OkObjectResult(resultOk);
+        }
     }
 }
