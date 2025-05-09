@@ -2,8 +2,7 @@
   "profiles": {
     "geradorDeBoleto": {
       "commandName": "Project",
-      "commandLineArgs": "--port 7129",
-      "launchBrowser": false
+      "commandLineArgs": "--port 7129 --cors \"*\""
     }
   }
 }
