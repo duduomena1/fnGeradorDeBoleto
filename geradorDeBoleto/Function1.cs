@@ -6,19 +6,14 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
-namespace geradorDeBoleto
+namespace fnGeradorBoletos
 {
-    public class GeradorCodigoBarras
+    public class GeradorCodigoBarras(ILogger<GeradorCodigoBarras> logger)
     {
-        private readonly ILogger<GeradorCodigoBarras> _logger;
-        private readonly string _serviceBusConnectionString;
+        private readonly ILogger<GeradorCodigoBarras> _logger = logger;
+        private readonly string _serviceBusConnectionString = Environment.GetEnvironmentVariable("ServiceBusConnectionString") 
+            ?? throw new InvalidOperationException("ServiceBusConnectionString environment variable is not set.");
         private readonly string _queueName = "gerador-de-boleto-queue";
-
-        public GeradorCodigoBarras(ILogger<GeradorCodigoBarras> logger)
-        {
-            _logger = logger;
-            _serviceBusConnectionString = Environment.GetEnvironmentVariable("ServiceBusConnectionString") ?? string.Empty;
-        }
 
         [Function("barcode-generate")]
         public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
@@ -26,23 +21,42 @@ namespace geradorDeBoleto
             try
             {
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-                dynamic data = JsonConvert.DeserializeObject(requestBody);
+                _logger.LogInformation("Received request body: {RequestBody}", requestBody);
+                
+                if (string.IsNullOrWhiteSpace(requestBody))
+                {
+                    return new BadRequestObjectResult("Request body cannot be null or empty.");
+                }
 
-                string valor = data?.valor;
-                string dataVencimento = data?.dataVencimento;
+                dynamic? deserializedData;
+                try
+                {
+                    deserializedData = JsonConvert.DeserializeObject(requestBody);
+                    if (deserializedData == null)
+                    {
+                        return new BadRequestObjectResult("Invalid JSON in request body.");
+                    }
+                }
+                catch (JsonReaderException ex)
+                {
+                    _logger.LogError(ex, "JSON parsing error in request body: {RequestBody}", requestBody);
+                    return new BadRequestObjectResult($"Invalid JSON format: {ex.Message}");
+                }
 
-                string barcodeData;
+                string? valor = deserializedData?.valor;
+                string? dataVencimento = deserializedData?.dataVencimento;
 
-                //Validate the input data
                 if (string.IsNullOrEmpty(valor) || string.IsNullOrEmpty(dataVencimento))
                 {
-                    return new BadRequestObjectResult("Valor e Data de Vencimento são obrigatórios.");
+                    return new BadRequestObjectResult("Os campos valor e dataVencimento são obrigatórios");
                 }
+
+                string barcodeData;
 
                 //Validate the format of the data
                 if (!DateTime.TryParseExact(dataVencimento, "yyyy-MM-dd", null, System.Globalization.DateTimeStyles.None, out DateTime dateObj))
                 {
-                    return new BadRequestObjectResult("Data de Vencimento inválida.");
+                    return new BadRequestObjectResult("Data de Vencimento inválida");
                 }
 
                 string dateStr = dateObj.ToString("yyyyMMdd");
@@ -51,7 +65,7 @@ namespace geradorDeBoleto
 
                 if (!decimal.TryParse(valor, out decimal valorDecimal))
                 {
-                    return new BadRequestObjectResult("Valor inválido.");
+                    return new BadRequestObjectResult("Valor inválido");
                 }
                 int valorCentavos = (int)(valorDecimal * 10);
                 string valorStr = valorCentavos.ToString("D8");
@@ -65,7 +79,7 @@ namespace geradorDeBoleto
                 _logger.LogInformation($"Generated barcode: {barcodeData}");
 
                 Barcode barcode = new Barcode();
-                var skImage = barcode.Encode(BarcodeStandard.Type.Code128A, barcodeData);
+                var skImage = barcode.Encode(BarcodeStandard.Type.Code128, barcodeData);
 
                 using (var encodeData = skImage.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100))
                 {
@@ -88,6 +102,7 @@ namespace geradorDeBoleto
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "An error occurred while processing the request.");
                 return new StatusCodeResult(StatusCodes.Status500InternalServerError);
             }
 
@@ -106,6 +121,7 @@ namespace geradorDeBoleto
             await sender.SendMessageAsync(message);
 
             _logger.LogInformation($"Message sent to queue: {queueName}");
+
         }
     }
 }
